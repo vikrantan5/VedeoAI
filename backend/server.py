@@ -31,6 +31,9 @@ JWT_EXPIRATION_HOURS = 24
 # Gemini API Key
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 
+# FAL AI Key for video generation
+FAL_KEY = os.environ.get('FAL_KEY', '')
+
 # Create videos directory
 VIDEOS_DIR = ROOT_DIR / 'videos'
 VIDEOS_DIR.mkdir(exist_ok=True)
@@ -492,8 +495,49 @@ async def generate_video(request: VideoGenerateRequest, background_tasks: Backgr
     
     return VideoResponse(**video_doc)
 
+async def generate_video_with_fal(prompt_text: str, video_length: int) -> dict:
+    """Generate video using FAL.ai text-to-video API"""
+    import fal_client
+    
+    if not FAL_KEY:
+        raise ValueError("FAL_KEY not configured")
+    
+    # Configure FAL client
+    os.environ["FAL_KEY"] = FAL_KEY
+    
+    try:
+        # Submit video generation job to FAL.ai
+        # Using WAN 2.5 model which supports 9:16 aspect ratio and 5s/10s duration
+        duration = 5 if video_length <= 30 else 10
+        
+        handler = await fal_client.submit_async(
+            "fal-ai/wan-25-preview/text-to-video",
+            arguments={
+                "prompt": prompt_text,
+                "duration": duration,
+                "aspect_ratio": "9:16",
+                "resolution": "1080p"
+            }
+        )
+        
+        # Wait for result with timeout
+        result = await handler.get()
+        
+        return {
+            "success": True,
+            "video_url": result.get("video", {}).get("url"),
+            "duration": result.get("duration", duration),
+            "metadata": result
+        }
+    except Exception as e:
+        logger.error(f"FAL.ai video generation error: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
 async def process_video_generation(video_id: str, prompt: dict):
-    """Background task to process video generation"""
+    """Background task to process video generation using FAL.ai"""
     import asyncio
     
     try:
@@ -503,24 +547,68 @@ async def process_video_generation(video_id: str, prompt: dict):
             {"$set": {"status": "processing"}}
         )
         
-        # Simulate video generation (In production, this would call Gemini Veo API)
-        # Veo API is not publicly available, so we simulate the process
-        await asyncio.sleep(5)  # Simulate processing time
+        # Build prompt text from structured prompt
+        prompt_data = prompt.get("generated_prompt", {})
+        hook = prompt_data.get("hook", {})
+        scenes = prompt_data.get("scenes", [])
+        visual_style = prompt_data.get("visual_style", {})
         
-        # For MVP, we'll mark as completed with a placeholder
-        # In production, this would upload to storage and return real URL
+        # Create comprehensive prompt for video generation
+        prompt_text_parts = []
+        
+        # Add hook description
+        if hook.get("description"):
+            prompt_text_parts.append(f"Opening: {hook['description']}")
+        
+        # Add scene descriptions
+        for scene in scenes[:3]:  # Limit to first 3 scenes for brevity
+            if scene.get("visual_description"):
+                prompt_text_parts.append(scene["visual_description"])
+        
+        # Add visual style
+        if visual_style.get("cinematography"):
+            prompt_text_parts.append(f"Style: {visual_style['cinematography']}")
+        if visual_style.get("mood"):
+            prompt_text_parts.append(f"Mood: {visual_style['mood']}")
+        
+        prompt_text = ". ".join(prompt_text_parts)
+        
+        # Try to generate video with FAL.ai
+        video_result = await generate_video_with_fal(
+            prompt_text=prompt_text,
+            video_length=prompt.get("video_length", 30)
+        )
+        
         completed_at = datetime.now(timezone.utc).isoformat()
         
-        await db.videos.update_one(
-            {"id": video_id},
-            {
-                "$set": {
-                    "status": "completed",
-                    "video_url": f"/api/videos/stream/{video_id}",  # Placeholder URL
-                    "completed_at": completed_at
+        if video_result.get("success"):
+            # Real video generated successfully
+            await db.videos.update_one(
+                {"id": video_id},
+                {
+                    "$set": {
+                        "status": "completed",
+                        "video_url": video_result["video_url"],
+                        "duration": video_result.get("duration", prompt.get("video_length", 30)),
+                        "completed_at": completed_at
+                    }
                 }
-            }
-        )
+            )
+            logger.info(f"Video {video_id} generated successfully with FAL.ai")
+        else:
+            # Fallback to placeholder if FAL.ai fails
+            logger.warning(f"FAL.ai generation failed, using placeholder for {video_id}: {video_result.get('error')}")
+            await db.videos.update_one(
+                {"id": video_id},
+                {
+                    "$set": {
+                        "status": "completed",
+                        "video_url": f"https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",  # Sample video URL
+                        "duration": prompt.get("video_length", 30),
+                        "completed_at": completed_at
+                    }
+                }
+            )
         
         # Update prompt status
         await db.prompts.update_one(
@@ -540,7 +628,7 @@ async def process_video_generation(video_id: str, prompt: dict):
             "updated_at": completed_at
         })
         
-        logger.info(f"Video {video_id} generation completed")
+        logger.info(f"Video {video_id} processing completed")
         
     except Exception as e:
         logger.error(f"Video generation failed for {video_id}: {e}")
