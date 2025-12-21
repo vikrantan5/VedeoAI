@@ -1355,3 +1355,4 @@ app.add_middleware(
 async def shutdown_db_client():
     client.close()
 # To run the app, use: uvicorn backend.server:app --host 0.0.0 --port 8000
+
