@@ -500,6 +500,7 @@ async def generate_video_with_fal(prompt_text: str, video_length: int) -> dict:
     import fal_client
     
     if not FAL_KEY:
+        logger.error("FAL_KEY not configured")
         raise ValueError("FAL_KEY not configured")
     
     # Configure FAL client
@@ -510,6 +511,7 @@ async def generate_video_with_fal(prompt_text: str, video_length: int) -> dict:
         # Using WAN 2.5 model which supports 9:16 aspect ratio and 5s/10s duration
         duration = 5 if video_length <= 30 else 10
         
+        logger.info(f"Submitting FAL.ai job with duration={duration}, prompt length={len(prompt_text)}")
         handler = await fal_client.submit_async(
             "fal-ai/wan-25-preview/text-to-video",
             arguments={
@@ -519,9 +521,12 @@ async def generate_video_with_fal(prompt_text: str, video_length: int) -> dict:
                 "resolution": "1080p"
             }
         )
+        logger.info(f"FAL.ai job submitted: {handler.request_id}")
         
         # Wait for result with timeout
+        logger.info("Waiting for FAL.ai result...")
         result = await handler.get()
+        logger.info(f"FAL.ai result received: {result.keys() if result else 'None'}")
         
         return {
             "success": True,
@@ -531,6 +536,8 @@ async def generate_video_with_fal(prompt_text: str, video_length: int) -> dict:
         }
     except Exception as e:
         logger.error(f"FAL.ai video generation error: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return {
             "success": False,
             "error": str(e)
@@ -541,11 +548,14 @@ async def process_video_generation(video_id: str, prompt: dict):
     import asyncio
     
     try:
+        logger.info(f"Starting video generation for {video_id}")
+        
         # Update status to processing
         await db.videos.update_one(
             {"id": video_id},
             {"$set": {"status": "processing"}}
         )
+        logger.info(f"Video {video_id} status updated to processing")
         
         # Build prompt text from structured prompt
         prompt_data = prompt.get("generated_prompt", {})
@@ -572,12 +582,15 @@ async def process_video_generation(video_id: str, prompt: dict):
             prompt_text_parts.append(f"Mood: {visual_style['mood']}")
         
         prompt_text = ". ".join(prompt_text_parts)
+        logger.info(f"Video {video_id} - Constructed prompt: {prompt_text[:200]}...")
         
         # Try to generate video with FAL.ai
+        logger.info(f"Video {video_id} - Submitting to FAL.ai...")
         video_result = await generate_video_with_fal(
             prompt_text=prompt_text,
             video_length=prompt.get("video_length", 30)
         )
+        logger.info(f"Video {video_id} - FAL.ai result: {video_result.get('success')}")
         
         completed_at = datetime.now(timezone.utc).isoformat()
         
@@ -774,3 +787,4 @@ app.add_middleware(
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
+# To run the app, use: uvicorn backend.server:app --host 0.0.0 --port 8000
