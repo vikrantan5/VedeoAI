@@ -100,6 +100,9 @@ Style: cinematic. Mood: energetic"
 }
 ```
 
+
+
+
 Response:
 ```json
 {
