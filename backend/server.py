@@ -448,17 +448,77 @@ Return ONLY valid JSON with "caption" and "hashtags" fields."""
         }
 
 
-# ==================== INSTAGRAM API SERVICE (MOCKED) ====================
+# ==================== INSTAGRAM API SERVICE (REAL) ====================
 
 class InstagramService:
-    """Mock Instagram API service for testing"""
+    """Real Instagram Graph API service for posting Reels"""
     
     def __init__(self):
-        self.mock_mode = True  # Set to False when using real Instagram API
+        self.access_token = os.environ.get('INSTAGRAM_ACCESS_TOKEN', '')
+        self.business_account_id = os.environ.get('INSTAGRAM_BUSINESS_ACCOUNT_ID', '')
+        self.base_url = "https://graph.instagram.com"
+        self.api_version = "v21.0"
+        self.mock_mode = False  # Set to True for testing without real API
+        
+        # If credentials are missing, enable mock mode
+        if not self.access_token or not self.business_account_id:
+            logger.warning("Instagram credentials not configured. Running in MOCK mode.")
+            self.mock_mode = True
+    
+    async def _fetch_business_account_id(self) -> Optional[str]:
+        """Fetch Instagram Business Account ID from Facebook Pages"""
+        import aiohttp
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                # First, get Facebook pages
+                url = f"{self.base_url}/{self.api_version}/me/accounts"
+                params = {"access_token": self.access_token}
+                
+                async with session.get(url, params=params) as response:
+                    if response.status != 200:
+                        logger.error(f"Failed to fetch Facebook pages: {response.status}")
+                        return None
+                    
+                    data = await response.json()
+                    pages = data.get("data", [])
+                    
+                    if not pages:
+                        logger.error("No Facebook pages found")
+                        return None
+                    
+                    # Get Instagram account from first page
+                    page_id = pages[0]["id"]
+                    page_access_token = pages[0]["access_token"]
+                    
+                    url = f"{self.base_url}/{self.api_version}/{page_id}"
+                    params = {
+                        "fields": "instagram_business_account",
+                        "access_token": page_access_token
+                    }
+                    
+                    async with session.get(url, params=params) as ig_response:
+                        if ig_response.status != 200:
+                            logger.error(f"Failed to fetch Instagram account: {ig_response.status}")
+                            return None
+                        
+                        ig_data = await ig_response.json()
+                        ig_account = ig_data.get("instagram_business_account", {})
+                        ig_account_id = ig_account.get("id")
+                        
+                        if ig_account_id:
+                            logger.info(f"Found Instagram Business Account ID: {ig_account_id}")
+                            return ig_account_id
+                        
+                        return None
+        except Exception as e:
+            logger.error(f"Error fetching business account ID: {e}")
+            return None
     
     async def create_media_container(self, video_url: str, caption: str, 
                                     hashtags: List[str]) -> Optional[str]:
-        """Mock: Create media container for Instagram Reel"""
+        """Create media container for Instagram Reel"""
+        
         if self.mock_mode:
             # Return mock media ID
             mock_media_id = f"mock_ig_{uuid.uuid4().hex[:12]}"
@@ -467,14 +527,84 @@ class InstagramService:
             logger.info(f"[MOCK] Caption: {caption[:50]}...")
             logger.info(f"[MOCK] Hashtags: {', '.join(hashtags[:3])}...")
             return mock_media_id
-        else:
-            # Real Instagram API implementation would go here
-            # Following the playbook structure
-            pass
+        
+        # Fetch business account ID if not set
+        if not self.business_account_id:
+            self.business_account_id = await self._fetch_business_account_id()
+            if not self.business_account_id:
+                logger.error("Cannot create media container without Business Account ID")
+                # Fallback to mock mode
+                self.mock_mode = True
+                return await self.create_media_container(video_url, caption, hashtags)
+        
+        import aiohttp
+        
+        # Format caption with hashtags
+        formatted_caption = caption
+        if hashtags:
+            formatted_caption += "\n\n" + " ".join([f"#{tag}" if not tag.startswith("#") else tag for tag in hashtags])
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = f"{self.base_url}/{self.api_version}/{self.business_account_id}/media"
+                
+                payload = {
+                    "media_type": "REELS",
+                    "video_url": video_url,
+                    "caption": formatted_caption,
+                    "share_to_feed": True,
+                    "access_token": self.access_token
+                }
+                
+                logger.info(f"Creating Instagram media container for video: {video_url}")
+                
+                async with session.post(url, data=payload) as response:
+                    response_text = await response.text()
+                    
+                    if response.status != 200:
+                        logger.error(f"Instagram API Error [{response.status}]: {response_text}")
+                        return None
+                    
+                    data = await response.json()
+                    container_id = data.get("id")
+                    
+                    logger.info(f"Successfully created media container: {container_id}")
+                    return container_id
+        except Exception as e:
+            logger.error(f"Error creating media container: {e}")
+            return None
     
-    async def publish_reel(self, media_id: str, caption: str, 
+    async def get_container_status(self, container_id: str) -> Optional[dict]:
+        """Check the status of a media container"""
+        
+        if self.mock_mode:
+            return {"status": "FINISHED", "status_code": "FINISHED"}
+        
+        import aiohttp
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = f"{self.base_url}/{self.api_version}/{container_id}"
+                params = {
+                    "fields": "status_code",
+                    "access_token": self.access_token
+                }
+                
+                async with session.get(url, params=params) as response:
+                    if response.status != 200:
+                        logger.error(f"Failed to get container status: {response.status}")
+                        return None
+                    
+                    data = await response.json()
+                    return data
+        except Exception as e:
+            logger.error(f"Error checking container status: {e}")
+            return None
+    
+    async def publish_reel(self, container_id: str, caption: str, 
                           hashtags: List[str]) -> Optional[dict]:
-        """Mock: Publish the reel to Instagram"""
+        """Publish the reel to Instagram"""
+        
         if self.mock_mode:
             # Simulate Instagram publishing
             import asyncio
@@ -489,12 +619,51 @@ class InstagramService:
                 "instagram_url": f"https://instagram.com/p/{mock_post_id}",
                 "posted_at": datetime.now(timezone.utc).isoformat()
             }
-        else:
-            # Real Instagram API implementation would go here
-            pass
+        
+        import aiohttp
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = f"{self.base_url}/{self.api_version}/{self.business_account_id}/media_publish"
+                
+                payload = {
+                    "creation_id": container_id,
+                    "access_token": self.access_token
+                }
+                
+                logger.info(f"Publishing reel with container ID: {container_id}")
+                
+                async with session.post(url, data=payload) as response:
+                    response_text = await response.text()
+                    
+                    if response.status != 200:
+                        logger.error(f"Instagram Publish Error [{response.status}]: {response_text}")
+                        return {
+                            "success": False,
+                            "error": response_text
+                        }
+                    
+                    data = await response.json()
+                    media_id = data.get("id")
+                    
+                    logger.info(f"Successfully published reel: {media_id}")
+                    
+                    return {
+                        "success": True,
+                        "instagram_post_id": media_id,
+                        "instagram_url": f"https://www.instagram.com/reel/{media_id}",
+                        "posted_at": datetime.now(timezone.utc).isoformat()
+                    }
+        except Exception as e:
+            logger.error(f"Error publishing reel: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
     
-    async def get_reel_insights(self, post_id: str) -> Optional[dict]:
-        """Mock: Get analytics for published reel"""
+    async def get_reel_insights(self, media_id: str) -> Optional[dict]:
+        """Get analytics for published reel"""
+        
         if self.mock_mode:
             # Return mock analytics
             import random
@@ -506,9 +675,37 @@ class InstagramService:
                 "saves": random.randint(5, 200),
                 "reach": random.randint(150, 15000)
             }
-        else:
-            # Real Instagram API implementation would go here
-            pass
+        
+        import aiohttp
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = f"{self.base_url}/{self.api_version}/{media_id}/insights"
+                params = {
+                    "metric": "impressions,reach,likes,comments,shares,saved",
+                    "access_token": self.access_token
+                }
+                
+                async with session.get(url, params=params) as response:
+                    if response.status != 200:
+                        logger.warning(f"Failed to fetch insights: {response.status}")
+                        return None
+                    
+                    data = await response.json()
+                    insights_data = data.get("data", [])
+                    
+                    # Parse insights into a simple dict
+                    insights = {}
+                    for item in insights_data:
+                        metric_name = item.get("name")
+                        metric_values = item.get("values", [])
+                        if metric_values:
+                            insights[metric_name] = metric_values[0].get("value", 0)
+                    
+                    return insights
+        except Exception as e:
+            logger.error(f"Error fetching insights: {e}")
+            return None
 
 instagram_service = InstagramService()
 
@@ -813,21 +1010,40 @@ async def process_video_generation(video_id: str, prompt: dict):
         logger.info(f"Video {video_id} - Caption generated: {caption[:50]}...")
         logger.info(f"Video {video_id} - Hashtags: {', '.join(hashtags[:3])}...")
         
-        # ==================== STEP 3: AUTO-POST TO INSTAGRAM (MOCKED) ====================
-        logger.info(f"Video {video_id} - Posting to Instagram (MOCKED)...")
+        # ==================== STEP 3: AUTO-POST TO INSTAGRAM (REAL API) ====================
+        mode = "REAL" if not instagram_service.mock_mode else "MOCK"
+        logger.info(f"Video {video_id} - Posting to Instagram ({mode} mode)...")
         
         try:
             # Create media container
-            media_id = await instagram_service.create_media_container(
+            container_id = await instagram_service.create_media_container(
                 video_url=video_url,
                 caption=caption,
                 hashtags=hashtags
             )
             
-            if media_id:
+            if container_id:
+                # Wait for container to be ready (only for real API)
+                if not instagram_service.mock_mode:
+                    logger.info(f"Video {video_id} - Waiting for container to be ready...")
+                    max_retries = 30
+                    retry_count = 0
+                    
+                    while retry_count < max_retries:
+                        status_result = await instagram_service.get_container_status(container_id)
+                        if status_result and status_result.get("status_code") == "FINISHED":
+                            logger.info(f"Video {video_id} - Container ready for publishing")
+                            break
+                        
+                        retry_count += 1
+                        await asyncio.sleep(2)  # Wait 2 seconds between checks
+                    
+                    if retry_count >= max_retries:
+                        logger.warning(f"Video {video_id} - Container processing timeout")
+                
                 # Publish reel
                 publish_result = await instagram_service.publish_reel(
-                    media_id=media_id,
+                    container_id=container_id,
                     caption=caption,
                     hashtags=hashtags
                 )
@@ -1049,6 +1265,65 @@ async def get_recent_activity(current_user: dict = Depends(get_current_user)):
     }
 
 
+
+# ==================== INSTAGRAM CONFIGURATION ROUTES ====================
+
+@api_router.get("/instagram/config")
+async def get_instagram_config(current_user: dict = Depends(get_current_user)):
+    """Get current Instagram API configuration status"""
+    return {
+        "mock_mode": instagram_service.mock_mode,
+        "has_access_token": bool(instagram_service.access_token),
+        "has_business_account_id": bool(instagram_service.business_account_id),
+        "business_account_id": instagram_service.business_account_id if instagram_service.business_account_id else None,
+        "api_version": instagram_service.api_version
+    }
+
+@api_router.post("/instagram/fetch-account-id")
+async def fetch_instagram_account_id(current_user: dict = Depends(get_current_user)):
+    """Manually fetch Instagram Business Account ID"""
+    try:
+        account_id = await instagram_service._fetch_business_account_id()
+        
+        if account_id:
+            # Update the service
+            instagram_service.business_account_id = account_id
+            instagram_service.mock_mode = False
+            
+            # Update .env file
+            env_path = ROOT_DIR / '.env'
+            with open(env_path, 'r') as f:
+                env_content = f.read()
+            
+            # Replace the INSTAGRAM_BUSINESS_ACCOUNT_ID line
+            import re
+            env_content = re.sub(
+                r'INSTAGRAM_BUSINESS_ACCOUNT_ID=".*"',
+                f'INSTAGRAM_BUSINESS_ACCOUNT_ID="{account_id}"',
+                env_content
+            )
+            
+            with open(env_path, 'w') as f:
+                f.write(env_content)
+            
+            logger.info(f"Instagram Business Account ID updated: {account_id}")
+            
+            return {
+                "success": True,
+                "business_account_id": account_id,
+                "message": "Instagram Business Account ID fetched and saved successfully"
+            }
+        else:
+            return {
+                "success": False,
+                "error": "Failed to fetch Instagram Business Account ID. Please check your access token."
+            }
+    except Exception as e:
+        logger.error(f"Error fetching account ID: {e}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 
 # ==================== HEALTH CHECK ====================

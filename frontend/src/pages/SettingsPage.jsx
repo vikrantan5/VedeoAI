@@ -9,7 +9,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Separator } from '../components/ui/separator';
 import { Switch } from '../components/ui/switch';
+import { Badge } from '../components/ui/badge';
 import { toast } from 'sonner';
+import axios from 'axios';
 import { 
   User, 
   Key, 
@@ -17,9 +19,213 @@ import {
   Palette,
   Shield,
   Save,
-  Loader2
+  Loader2,
+  RefreshCw,
+  CheckCircle2,
+  XCircle
 } from 'lucide-react';
 import { useTheme } from '../contexts/ThemeContext';
+
+const API_URL = `${process.env.REACT_APP_BACKEND_URL}/api`;
+
+// Instagram Settings Component
+const InstagramSettings = () => {
+  const [config, setConfig] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [fetchingId, setFetchingId] = useState(false);
+
+  useEffect(() => {
+    fetchConfig();
+  }, []);
+
+  const fetchConfig = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/instagram/config`);
+      setConfig(response.data);
+    } catch (error) {
+      console.error('Failed to fetch Instagram config:', error);
+    }
+  };
+
+  const handleFetchAccountId = async () => {
+    setFetchingId(true);
+    try {
+      const response = await axios.post(`${API_URL}/instagram/fetch-account-id`);
+      
+      if (response.data.success) {
+        toast.success(response.data.message);
+        await fetchConfig(); // Refresh config
+      } else {
+        toast.error(response.data.error || 'Failed to fetch Account ID');
+      }
+    } catch (error) {
+      console.error('Error fetching account ID:', error);
+      toast.error('Failed to fetch Instagram Business Account ID');
+    } finally {
+      setFetchingId(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Instagram Graph API Configuration</CardTitle>
+        <CardDescription>
+          Real Instagram Reel posting with captions & hashtags
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* Status Card */}
+        {config && (
+          <div className={`p-4 rounded-lg border ${
+            config.mock_mode 
+              ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-800'
+              : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+          }`}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-medium flex items-center gap-2">
+                {config.mock_mode ? (
+                  <>
+                    <XCircle className="w-5 h-5 text-yellow-600" />
+                    <span>Mock Mode Active</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="w-5 h-5 text-green-600" />
+                    <span>Real API Active</span>
+                  </>
+                )}
+              </h3>
+              <Badge variant={config.mock_mode ? "secondary" : "default"}>
+                {config.mock_mode ? "Testing" : "Production"}
+              </Badge>
+            </div>
+            
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Access Token:</span>
+                <span className="font-medium">
+                  {config.has_access_token ? '✓ Configured' : '✗ Missing'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Business Account ID:</span>
+                <span className="font-medium">
+                  {config.has_business_account_id ? `✓ ${config.business_account_id}` : '✗ Not Set'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">API Version:</span>
+                <span className="font-medium">{config.api_version}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Fetch Business Account ID */}
+        {config && config.has_access_token && !config.has_business_account_id && (
+          <Card className="border-2 border-primary/20">
+            <CardHeader>
+              <CardTitle className="text-lg">🚀 Quick Setup</CardTitle>
+              <CardDescription>
+                Automatically fetch your Instagram Business Account ID
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-muted-foreground mb-4">
+                Your access token is configured. Click below to automatically fetch and configure your Instagram Business Account ID.
+              </p>
+              <Button 
+                onClick={handleFetchAccountId} 
+                disabled={fetchingId}
+                className="w-full"
+              >
+                {fetchingId ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Fetching Account ID...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Fetch Instagram Business Account ID
+                  </>
+                )}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Current Features */}
+        <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+          <h4 className="font-medium text-green-900 dark:text-green-100 mb-2">✅ Active Features</h4>
+          <ul className="text-sm text-green-800 dark:text-green-200 space-y-1">
+            <li>✓ Gemini AI caption generation (max 125 chars)</li>
+            <li>✓ Smart hashtag optimization (5-10 tags)</li>
+            <li>✓ Automatic caption & hashtag attachment</li>
+            <li>✓ {config?.mock_mode ? 'Mock' : 'Real'} Instagram Reel posting</li>
+            {!config?.mock_mode && <li>✓ Performance insights tracking</li>}
+          </ul>
+        </div>
+
+        {/* Setup Guide */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">📘 Setup Guide</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3 text-sm">
+              <div>
+                <p className="font-medium mb-1">1. Access Token Added ✓</p>
+                <p className="text-muted-foreground pl-4">
+                  Your Instagram access token is configured in the backend .env file
+                </p>
+              </div>
+              
+              <Separator />
+              
+              <div>
+                <p className="font-medium mb-1">
+                  2. Fetch Business Account ID {config?.has_business_account_id ? '✓' : '⏳'}
+                </p>
+                <p className="text-muted-foreground pl-4">
+                  {config?.has_business_account_id 
+                    ? 'Your Instagram Business Account ID is configured'
+                    : 'Click the button above to automatically fetch it'}
+                </p>
+              </div>
+              
+              <Separator />
+              
+              <div>
+                <p className="font-medium mb-1">
+                  3. Start Posting! {config?.mock_mode ? '⏳' : '✓'}
+                </p>
+                <p className="text-muted-foreground pl-4">
+                  {config?.mock_mode 
+                    ? 'Complete step 2 to enable real Instagram posting'
+                    : 'Your videos will now be posted directly to Instagram!'}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Troubleshooting */}
+        <Card className="border-dashed">
+          <CardHeader>
+            <CardTitle className="text-lg">🔧 Troubleshooting</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 text-sm">
+            <p><strong>Token Invalid?</strong> Your access token may have expired. Generate a new one from Facebook Developer Console.</p>
+            <p><strong>Can't Fetch ID?</strong> Ensure your Facebook Page is connected to an Instagram Business Account.</p>
+            <p><strong>Posting Failed?</strong> Check that your video URL is publicly accessible and meets Instagram's requirements (9:16 aspect ratio, max 60s).</p>
+          </CardContent>
+        </Card>
+      </CardContent>
+    </Card>
+  );
+};
 
 const SettingsPage = () => {
   const { user } = useAuth();
@@ -295,154 +501,7 @@ const SettingsPage = () => {
               animate={{ opacity: 1, y: 0 }}
               className="space-y-6"
             >
-              <Card>
-                <CardHeader>
-                  <CardTitle>Instagram Graph API Setup</CardTitle>
-                  <CardDescription>
-                    Connect your Instagram Business Account to enable auto-posting
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
-                    <h3 className="font-medium mb-2">📘 Currently Using Mock Mode</h3>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      The system is currently in mock mode for testing. Captions and hashtags are generated automatically, 
-                      but Instagram posting is simulated. Follow the guide below to set up real Instagram integration.
-                    </p>
-                  </div>
-
-                  <div className="space-y-4">
-                    <h3 className="font-medium text-lg">Setup Guide: Instagram Graph API</h3>
-                    
-                    <div className="space-y-3">
-                      <div className="flex gap-3">
-                        <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold">
-                          1
-                        </div>
-                        <div>
-                          <h4 className="font-medium mb-1">Create Facebook Developer Account</h4>
-                          <p className="text-sm text-muted-foreground mb-2">
-                            Visit <a href="https://developers.facebook.com" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">developers.facebook.com</a> and create an account
-                          </p>
-                        </div>
-                      </div>
-
-                      <Separator />
-
-                      <div className="flex gap-3">
-                        <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold">
-                          2
-                        </div>
-                        <div>
-                          <h4 className="font-medium mb-1">Create a Facebook App</h4>
-                          <p className="text-sm text-muted-foreground">
-                            Go to "My Apps" → "Create App" → Choose "Business" type
-                          </p>
-                        </div>
-                      </div>
-
-                      <Separator />
-
-                      <div className="flex gap-3">
-                        <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold">
-                          3
-                        </div>
-                        <div>
-                          <h4 className="font-medium mb-1">Add Instagram Product</h4>
-                          <p className="text-sm text-muted-foreground">
-                            In your app dashboard, find "Instagram" product and click "Set Up"
-                          </p>
-                        </div>
-                      </div>
-
-                      <Separator />
-
-                      <div className="flex gap-3">
-                        <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold">
-                          4
-                        </div>
-                        <div>
-                          <h4 className="font-medium mb-1">Generate Access Token</h4>
-                          <p className="text-sm text-muted-foreground mb-2">
-                            Use Graph API Explorer to generate a User Access Token with these permissions:
-                          </p>
-                          <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1 ml-4">
-                            <li>instagram_business_browse</li>
-                            <li>instagram_graph_user_profile</li>
-                            <li>instagram_graph_media_profile</li>
-                            <li>pages_show_list</li>
-                          </ul>
-                        </div>
-                      </div>
-
-                      <Separator />
-
-                      <div className="flex gap-3">
-                        <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold">
-                          5
-                        </div>
-                        <div>
-                          <h4 className="font-medium mb-1">Extend Token Validity</h4>
-                          <p className="text-sm text-muted-foreground">
-                            Visit <a href="https://developers.facebook.com/tools/debug/accesstoken/" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Access Token Debugger</a> and extend your token to 60 days
-                          </p>
-                        </div>
-                      </div>
-
-                      <Separator />
-
-                      <div className="flex gap-3">
-                        <div className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-sm font-bold">
-                          6
-                        </div>
-                        <div>
-                          <h4 className="font-medium mb-1">Get Instagram Business Account ID</h4>
-                          <p className="text-sm text-muted-foreground">
-                            In Graph API Explorer, query: <code className="bg-muted px-2 py-1 rounded text-xs">me/accounts</code> then <code className="bg-muted px-2 py-1 rounded text-xs">{'{'}page-id{'}'}/instagram_accounts</code>
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <Separator className="my-6" />
-
-                  <div className="space-y-4">
-                    <h3 className="font-medium text-lg">Configuration (Coming Soon)</h3>
-                    <p className="text-sm text-muted-foreground">
-                      Once you have your credentials, you'll be able to configure them here. Contact your administrator to enable real Instagram integration.
-                    </p>
-                    
-                    <div className="space-y-3 opacity-50 pointer-events-none">
-                      <div className="space-y-2">
-                        <Label>Instagram Business Account ID</Label>
-                        <Input placeholder="17841XXXXXXXXXX" disabled />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Access Token</Label>
-                        <Input type="password" placeholder="Your long-lived access token" disabled />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Facebook Page ID</Label>
-                        <Input placeholder="123456789012345" disabled />
-                      </div>
-                      <Button disabled>
-                        Save Instagram Credentials
-                      </Button>
-                    </div>
-                  </div>
-
-                  <div className="p-4 rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
-                    <h4 className="font-medium text-green-900 dark:text-green-100 mb-2">✅ Current Features Active</h4>
-                    <ul className="text-sm text-green-800 dark:text-green-200 space-y-1">
-                      <li>✓ Gemini AI caption generation</li>
-                      <li>✓ Hashtag optimization (5-10 tags)</li>
-                      <li>✓ Automatic caption & hashtag attachment to videos</li>
-                      <li>✓ Mock Instagram posting (for testing)</li>
-                    </ul>
-                  </div>
-                </CardContent>
-              </Card>
+              <InstagramSettings />
             </motion.div>
           </TabsContent>
 
