@@ -230,6 +230,51 @@ const VideosPage = () => {
                         </div>
                       </div>
 
+                      {/* Caption & Hashtags */}
+                      {video.caption_text && (
+                        <div className="pt-3 border-t border-border space-y-2">
+                          <div>
+                            <p className="text-xs text-muted-foreground mb-1">Caption:</p>
+                            <p className="text-sm">{video.caption_text}</p>
+                          </div>
+                          {video.hashtags_used && video.hashtags_used.length > 0 && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1">Hashtags:</p>
+                              <div className="flex flex-wrap gap-1">
+                                {video.hashtags_used.slice(0, 5).map((tag, idx) => (
+                                  <span 
+                                    key={idx}
+                                    className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full"
+                                  >
+                                    {tag}
+                                  </span>
+                                ))}
+                                {video.hashtags_used.length > 5 && (
+                                  <span className="text-xs text-muted-foreground">
+                                    +{video.hashtags_used.length - 5} more
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                          {video.instagram_post_id && (
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1">Instagram Status:</p>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs px-2 py-0.5 bg-green-100 text-green-700 rounded">
+                                  Posted ✓
+                                </span>
+                                {video.posted_at && (
+                                  <span className="text-xs text-muted-foreground">
+                                    {new Date(video.posted_at).toLocaleString()}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {/* Performance Metrics */}
                       {perf && (
                         <div className="grid grid-cols-3 gap-2 pt-3 border-t border-border">

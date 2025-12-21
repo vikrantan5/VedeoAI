@@ -128,6 +128,11 @@ class VideoResponse(BaseModel):
     resolution: Optional[str]
     created_at: str
     completed_at: Optional[str]
+    caption_text: Optional[str] = None
+    hashtags_used: Optional[List[str]] = None
+    instagram_post_id: Optional[str] = None
+    posted_at: Optional[str] = None
+    platform: str = "instagram"
 
 class PerformanceMetrics(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -325,6 +330,187 @@ Generate a complete video prompt following the exact JSON structure specified. M
             },
             "raw_text": f"Generated default template for {request.niche}"
         }
+
+
+
+# ==================== CAPTION & HASHTAG GENERATION ====================
+
+CAPTION_SYSTEM_MESSAGE = """You are an expert Instagram social media copywriter specialized in creating viral captions and hashtags for short-form video content (Reels).
+
+Your task is to generate Instagram-optimized captions and hashtags that maximize engagement, virality, and discoverability.
+
+CAPTION RULES:
+- Max 125 characters preferred (concise and punchy)
+- Hook in the first line to grab attention
+- Use 2-4 relevant emojis strategically
+- Include a subtle CTA (Call-to-Action) like "Follow for more" or "Save this"
+- Instagram-safe language only (no profanity, no controversial content)
+- Mobile-friendly formatting
+
+HASHTAG RULES:
+- Generate 5-10 hashtags exactly
+- Mix of broad, medium, and niche-specific tags
+- No banned or spam hashtags
+- Relevant to the niche and platform
+- Use trending but evergreen tags when possible
+
+Always respond in valid JSON format with this EXACT structure:
+{
+    "caption": "Short, engaging Instagram caption with hook and CTA.",
+    "hashtags": [
+        "#RelevantTag1",
+        "#RelevantTag2",
+        "#RelevantTag3",
+        "#RelevantTag4",
+        "#RelevantTag5"
+    ]
+}
+
+IMPORTANT: Return ONLY the JSON, no additional text or markdown."""
+
+async def generate_caption_and_hashtags(niche: str, tone: str, platform: str, 
+                                       video_length: int, goal: str, 
+                                       video_topic: str = "") -> dict:
+    """Use Gemini to generate Instagram-optimized captions and hashtags"""
+    
+    user_prompt = f"""Generate an Instagram Reel caption and hashtags for this video:
+
+NICHE/TOPIC: {niche}
+VIDEO TOPIC: {video_topic if video_topic else niche}
+PLATFORM: {platform}
+VIDEO LENGTH: {video_length} seconds
+TONE: {tone}
+GOAL: {goal}
+
+Create a caption and hashtags that will maximize {goal} on {platform}. The caption should be punchy, engaging, and optimized for mobile viewing. Hashtags should help with discoverability and reach.
+
+Return ONLY valid JSON with "caption" and "hashtags" fields."""
+
+    try:
+        chat = LlmChat(
+            api_key=GEMINI_API_KEY,
+            session_id=f"caption-gen-{uuid.uuid4()}",
+            system_message=CAPTION_SYSTEM_MESSAGE
+        ).with_model("gemini", "gemini-2.5-flash")
+        
+        message = UserMessage(text=user_prompt)
+        response = await chat.send_message(message)
+        
+        # Parse the JSON response
+        import json
+        # Clean up response - sometimes LLM adds markdown
+        response_text = response.strip()
+        if response_text.startswith("```json"):
+            response_text = response_text[7:]
+        if response_text.startswith("```"):
+            response_text = response_text[3:]
+        if response_text.endswith("```"):
+            response_text = response_text[:-3]
+        
+        caption_data = json.loads(response_text.strip())
+        
+        # Validate structure
+        if "caption" not in caption_data or "hashtags" not in caption_data:
+            raise ValueError("Invalid response structure")
+        
+        # Ensure hashtags is a list
+        if not isinstance(caption_data["hashtags"], list):
+            caption_data["hashtags"] = []
+        
+        # Ensure all hashtags start with #
+        caption_data["hashtags"] = [
+            tag if tag.startswith("#") else f"#{tag}" 
+            for tag in caption_data["hashtags"]
+        ]
+        
+        logger.info(f"Generated caption: {caption_data['caption'][:50]}...")
+        logger.info(f"Generated {len(caption_data['hashtags'])} hashtags")
+        
+        return {
+            "success": True,
+            "caption": caption_data["caption"],
+            "hashtags": caption_data["hashtags"]
+        }
+    except Exception as e:
+        logger.error(f"Caption generation error: {e}")
+        # Return default caption and hashtags if generation fails
+        return {
+            "success": False,
+            "error": str(e),
+            "caption": f"Check out this amazing {niche} content! 🔥✨ Follow for more!",
+            "hashtags": [
+                f"#{niche.replace(' ', '')}",
+                "#Reels",
+                "#Viral",
+                "#Trending",
+                "#ContentCreator"
+            ]
+        }
+
+
+# ==================== INSTAGRAM API SERVICE (MOCKED) ====================
+
+class InstagramService:
+    """Mock Instagram API service for testing"""
+    
+    def __init__(self):
+        self.mock_mode = True  # Set to False when using real Instagram API
+    
+    async def create_media_container(self, video_url: str, caption: str, 
+                                    hashtags: List[str]) -> Optional[str]:
+        """Mock: Create media container for Instagram Reel"""
+        if self.mock_mode:
+            # Return mock media ID
+            mock_media_id = f"mock_ig_{uuid.uuid4().hex[:12]}"
+            logger.info(f"[MOCK] Created media container: {mock_media_id}")
+            logger.info(f"[MOCK] Video URL: {video_url}")
+            logger.info(f"[MOCK] Caption: {caption[:50]}...")
+            logger.info(f"[MOCK] Hashtags: {', '.join(hashtags[:3])}...")
+            return mock_media_id
+        else:
+            # Real Instagram API implementation would go here
+            # Following the playbook structure
+            pass
+    
+    async def publish_reel(self, media_id: str, caption: str, 
+                          hashtags: List[str]) -> Optional[dict]:
+        """Mock: Publish the reel to Instagram"""
+        if self.mock_mode:
+            # Simulate Instagram publishing
+            import asyncio
+            await asyncio.sleep(2)  # Simulate processing time
+            
+            mock_post_id = f"mock_post_{uuid.uuid4().hex[:12]}"
+            logger.info(f"[MOCK] Published reel: {mock_post_id}")
+            
+            return {
+                "success": True,
+                "instagram_post_id": mock_post_id,
+                "instagram_url": f"https://instagram.com/p/{mock_post_id}",
+                "posted_at": datetime.now(timezone.utc).isoformat()
+            }
+        else:
+            # Real Instagram API implementation would go here
+            pass
+    
+    async def get_reel_insights(self, post_id: str) -> Optional[dict]:
+        """Mock: Get analytics for published reel"""
+        if self.mock_mode:
+            # Return mock analytics
+            import random
+            return {
+                "views": random.randint(100, 10000),
+                "likes": random.randint(10, 1000),
+                "comments": random.randint(5, 100),
+                "shares": random.randint(2, 50),
+                "saves": random.randint(5, 200),
+                "reach": random.randint(150, 15000)
+            }
+        else:
+            # Real Instagram API implementation would go here
+            pass
+
+instagram_service = InstagramService()
 
 
 # ==================== AUTH ROUTES ====================
@@ -593,32 +779,136 @@ async def process_video_generation(video_id: str, prompt: dict):
         logger.info(f"Video {video_id} - FAL.ai result: {video_result.get('success')}")
         
         completed_at = datetime.now(timezone.utc).isoformat()
+        video_url = None
         
         if video_result.get("success"):
             # Real video generated successfully
-            await db.videos.update_one(
-                {"id": video_id},
-                {
-                    "$set": {
-                        "status": "completed",
-                        "video_url": video_result["video_url"],
-                        "duration": video_result.get("duration", prompt.get("video_length", 30)),
-                        "completed_at": completed_at
-                    }
-                }
-            )
+            video_url = video_result["video_url"]
             logger.info(f"Video {video_id} generated successfully with FAL.ai")
         else:
             # Fallback to placeholder if FAL.ai fails
             logger.warning(f"FAL.ai generation failed, using placeholder for {video_id}: {video_result.get('error')}")
+            video_url = f"https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4"  # Sample video URL
+        
+        # ==================== STEP 2: GENERATE CAPTION & HASHTAGS ====================
+        logger.info(f"Video {video_id} - Generating caption and hashtags...")
+        
+        # Extract video topic from prompt
+        video_topic = prompt.get("niche", "")
+        if hook.get("description"):
+            video_topic = hook["description"][:100]  # Use hook description as topic
+        
+        caption_result = await generate_caption_and_hashtags(
+            niche=prompt.get("niche", ""),
+            tone=prompt.get("tone", "cinematic"),
+            platform=prompt.get("platform", "instagram"),
+            video_length=prompt.get("video_length", 30),
+            goal=prompt.get("goal", "engagement"),
+            video_topic=video_topic
+        )
+        
+        caption = caption_result.get("caption", "Check out this amazing video! 🔥")
+        hashtags = caption_result.get("hashtags", ["#Reels", "#Viral"])
+        
+        logger.info(f"Video {video_id} - Caption generated: {caption[:50]}...")
+        logger.info(f"Video {video_id} - Hashtags: {', '.join(hashtags[:3])}...")
+        
+        # ==================== STEP 3: AUTO-POST TO INSTAGRAM (MOCKED) ====================
+        logger.info(f"Video {video_id} - Posting to Instagram (MOCKED)...")
+        
+        try:
+            # Create media container
+            media_id = await instagram_service.create_media_container(
+                video_url=video_url,
+                caption=caption,
+                hashtags=hashtags
+            )
+            
+            if media_id:
+                # Publish reel
+                publish_result = await instagram_service.publish_reel(
+                    media_id=media_id,
+                    caption=caption,
+                    hashtags=hashtags
+                )
+                
+                if publish_result and publish_result.get("success"):
+                    instagram_post_id = publish_result.get("instagram_post_id")
+                    posted_at = publish_result.get("posted_at")
+                    
+                    logger.info(f"Video {video_id} - Successfully posted to Instagram: {instagram_post_id}")
+                    
+                    # Update video with ALL data including Instagram info
+                    await db.videos.update_one(
+                        {"id": video_id},
+                        {
+                            "$set": {
+                                "status": "completed",
+                                "video_url": video_url,
+                                "duration": video_result.get("duration", prompt.get("video_length", 30)) if video_result.get("success") else prompt.get("video_length", 30),
+                                "completed_at": completed_at,
+                                "caption_text": caption,
+                                "hashtags_used": hashtags,
+                                "instagram_post_id": instagram_post_id,
+                                "posted_at": posted_at,
+                                "platform": "instagram"
+                            }
+                        }
+                    )
+                else:
+                    # Instagram posting failed, but video is still complete
+                    logger.warning(f"Video {video_id} - Instagram posting failed")
+                    await db.videos.update_one(
+                        {"id": video_id},
+                        {
+                            "$set": {
+                                "status": "completed",
+                                "video_url": video_url,
+                                "duration": video_result.get("duration", prompt.get("video_length", 30)) if video_result.get("success") else prompt.get("video_length", 30),
+                                "completed_at": completed_at,
+                                "caption_text": caption,
+                                "hashtags_used": hashtags,
+                                "instagram_post_id": None,
+                                "posted_at": None,
+                                "platform": "instagram"
+                            }
+                        }
+                    )
+            else:
+                # Media container creation failed
+                logger.warning(f"Video {video_id} - Instagram media container creation failed")
+                await db.videos.update_one(
+                    {"id": video_id},
+                    {
+                        "$set": {
+                            "status": "completed",
+                            "video_url": video_url,
+                            "duration": video_result.get("duration", prompt.get("video_length", 30)) if video_result.get("success") else prompt.get("video_length", 30),
+                            "completed_at": completed_at,
+                            "caption_text": caption,
+                            "hashtags_used": hashtags,
+                            "instagram_post_id": None,
+                            "posted_at": None,
+                            "platform": "instagram"
+                        }
+                    }
+                )
+        except Exception as ig_error:
+            logger.error(f"Video {video_id} - Instagram posting error: {ig_error}")
+            # Still mark video as completed even if Instagram posting fails
             await db.videos.update_one(
                 {"id": video_id},
                 {
                     "$set": {
                         "status": "completed",
-                        "video_url": f"https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",  # Sample video URL
-                        "duration": prompt.get("video_length", 30),
-                        "completed_at": completed_at
+                        "video_url": video_url,
+                        "duration": video_result.get("duration", prompt.get("video_length", 30)) if video_result.get("success") else prompt.get("video_length", 30),
+                        "completed_at": completed_at,
+                        "caption_text": caption,
+                        "hashtags_used": hashtags,
+                        "instagram_post_id": None,
+                        "posted_at": None,
+                        "platform": "instagram"
                     }
                 }
             )
