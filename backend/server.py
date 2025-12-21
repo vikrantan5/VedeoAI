@@ -1049,6 +1049,8 @@ async def get_recent_activity(current_user: dict = Depends(get_current_user)):
     }
 
 
+
+
 # ==================== HEALTH CHECK ====================
 
 @api_router.get("/")

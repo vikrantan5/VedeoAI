@@ -9,6 +9,8 @@ import { useTheme } from "../contexts/ThemeContext";
 import { toast } from "sonner";
 import { Film, Sun, Moon, ArrowLeft, Loader2 } from "lucide-react";
 
+
+
 const LoginPage = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
