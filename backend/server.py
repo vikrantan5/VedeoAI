@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 import jwt
 import bcrypt
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+from google import genai
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -262,19 +262,25 @@ GOAL: {request.goal}
 Generate a complete video prompt following the exact JSON structure specified. Make it highly specific, visually compelling, and optimized for maximum engagement and retention on {request.platform}."""
 
     try:
-        chat = LlmChat(
-            api_key=GEMINI_API_KEY,
-            session_id=f"prompt-gen-{uuid.uuid4()}",
-            system_message=PROMPT_SYSTEM_MESSAGE
-        ).with_model("gemini", "gemini-2.5-flash")
+        # Create client for Google Genai
+        client = genai.Client(api_key=GEMINI_API_KEY)
         
-        message = UserMessage(text=user_prompt)
-        response = await chat.send_message(message)
+        # Generate content with system instruction
+        response = client.models.generate_content(
+            model='gemini-2.0-flash-exp',
+            contents=user_prompt,
+            config={
+                'system_instruction': PROMPT_SYSTEM_MESSAGE,
+                'temperature': 0.7
+            }
+        )
+        
+        response_text = response.text
         
         # Parse the JSON response
         import json
         # Clean up response - sometimes LLM adds markdown
-        response_text = response.strip()
+        response_text = response_text.strip()
         if response_text.startswith("```json"):
             response_text = response_text[7:]
         if response_text.startswith("```"):
@@ -286,7 +292,7 @@ Generate a complete video prompt following the exact JSON structure specified. M
         return {
             "success": True,
             "prompt": prompt_data,
-            "raw_text": response
+            "raw_text": response.text
         }
     except Exception as e:
         logger.error(f"Prompt generation error: {e}")
@@ -387,19 +393,25 @@ Create a caption and hashtags that will maximize {goal} on {platform}. The capti
 Return ONLY valid JSON with "caption" and "hashtags" fields."""
 
     try:
-        chat = LlmChat(
-            api_key=GEMINI_API_KEY,
-            session_id=f"caption-gen-{uuid.uuid4()}",
-            system_message=CAPTION_SYSTEM_MESSAGE
-        ).with_model("gemini", "gemini-2.5-flash")
+        # Create client for Google Genai
+        client = genai.Client(api_key=GEMINI_API_KEY)
         
-        message = UserMessage(text=user_prompt)
-        response = await chat.send_message(message)
+        # Generate content with system instruction
+        response = client.models.generate_content(
+            model='gemini-2.0-flash-exp',
+            contents=user_prompt,
+            config={
+                'system_instruction': CAPTION_SYSTEM_MESSAGE,
+                'temperature': 0.7
+            }
+        )
+        
+        response_text = response.text
         
         # Parse the JSON response
         import json
         # Clean up response - sometimes LLM adds markdown
-        response_text = response.strip()
+        response_text = response_text.strip()
         if response_text.startswith("```json"):
             response_text = response_text[7:]
         if response_text.startswith("```"):
